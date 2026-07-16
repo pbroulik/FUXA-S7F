@@ -8,39 +8,33 @@ RUN npm run build -- --configuration production
 
 # --- STAGE 2: Server & Native Dependencies Builder ---
 FROM node:18-bookworm AS server-builder
-# Define build arguments with defaults
-ARG NODE_SNAP=true
 ARG INSTALL_ODBC=true
 
 WORKDIR /usr/src/app/FUXA
 
-# Base build tools (Zde Python a překladače jsou, protože stavíme na plném "bookworm" obrazu)
+# Nainstalujeme systémové závislosti a překladače (zde Python 3 je a funguje)
 RUN apt-get update && apt-get install -y \
     python3 build-essential libsqlite3-dev dos2unix git \
     $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc-dev" ) \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Server dependencies
+# Zkopírujeme soubory balíčků pro server
 COPY server/package*.json ./server/
 WORKDIR /usr/src/app/FUXA/server
-RUN npm install --no-audit --no-fund
 
-# PŘEDINSTALACE SNAP7: Nainstalujeme ho přesně do runtime složky, kde ho FUXA hledá
-RUN if [ "$NODE_SNAP" = "true" ]; then \
-    mkdir -p _pkg/runtime && \
-    cd _pkg/runtime && \
-    npm init -y && \
-    npm install node-snap7 --no-audit --no-fund --build-from-source; \
-    fi
+# Vnutíme node-snap7 přímo do závislostí hlavního serveru, aby se zkompiloval hned teď
+RUN npm pkg set dependencies.node-snap7="^0.1.20"
 
-# Vracíme se zpět a instalujeme sqlite
-WORKDIR /usr/src/app/FUXA/server
+# Spustíme instalaci serveru a kompilaci nativních modulů ze zdrojového kódu
+RUN npm install --no-audit --no-fund --build-from-source
+
+# Nainstalujeme a zkompilujeme sqlite3
 RUN npm install --build-from-source --sqlite=/usr/bin sqlite3
 
-# Vyčištění pouze nepotřebných devDependencies v serveru
+# Odstraníme vývojářské balíčky, abychom ušetřili místo
 RUN npm prune --production
 
-# Optional ODBC driver preparation
+# Příprava ODBC ovladačů (pokud jsou aktivní)
 WORKDIR /usr/src/app/FUXA/odbc
 COPY odbc/ ./
 RUN if [ "$INSTALL_ODBC" = "true" ]; then \
@@ -48,18 +42,18 @@ RUN if [ "$INSTALL_ODBC" = "true" ]; then \
     fi \
     && mkdir -p /usr/lib/odbc /opt/microsoft
 
-# 3. Copy server source, build, then cleanup
+# Zkopírujeme zdrojové kódy serveru a sestavíme ho
 WORKDIR /usr/src/app/FUXA/server
 COPY server/ ./
 RUN rm -rf test
 RUN npm run build
 
-# --- STAGE 3: Runner (Čisté, lehké a bez kompilace za běhu) ---
+# --- STAGE 3: Runner (Čisté a lehké produkční prostředí) ---
 FROM node:18-bookworm-slim
 ARG INSTALL_ODBC=true
 WORKDIR /usr/src/app/FUXA
 
-# Instalujeme POUZE čisté knihovny pro běh, žádný kompilátor, žádný Python
+# Nainstalujeme pouze nutné běhové knihovny, žádný kompilátor ani Python
 RUN apt-get update \
     && apt-get install -y \
         sqlite3 libsqlite3-0 \
@@ -70,24 +64,24 @@ RUN apt-get update \
     fi \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy MySQL and MSSQL ODBC drivers from builder
+# Zkopírujeme ODBC ovladače z builderu
 COPY --from=server-builder /usr/lib/odbc/ /usr/lib/odbc/
 COPY --from=server-builder /opt/microsoft/ /opt/microsoft/
 
-# Copy Server (včetně předpřipravené složky _pkg/runtime se zkompilovaným node-snap7)
+# Zkopírujeme kompletní hotový server (včetně předpřipraveného a zkompilovaného node-snap7)
 COPY --from=server-builder /usr/src/app/FUXA/server ./server
 
-# Copy Client
+# Zkopírujeme klientskou část (Angular web)
 COPY --from=client-builder /usr/src/app/client/dist ./client/dist
 
-# Conditional ODBC Config
+# Zkopírujeme konfiguraci ODBC (pokud je aktivní)
 COPY --from=server-builder /usr/src/app/FUXA/odbc ./odbc
 RUN if [ "$INSTALL_ODBC" = "true" ]; then cp odbc/odbcinst.ini /etc/odbcinst.ini; fi
 
-# Copy static app files
+# Zkopírujeme statické soubory aplikace
 COPY node-red/ ./node-red/
 
-# Final cleanup
+# Nastavení pracovního adresáře pro spuštění
 WORKDIR /usr/src/app/FUXA/server
 
 ENV NODE_ENV=production
