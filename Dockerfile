@@ -14,9 +14,9 @@ ARG INSTALL_ODBC=true
 
 WORKDIR /usr/src/app/FUXA
 
-# Base build tools
+# Base build tools (přidán git pro případné stahování submodulů)
 RUN apt-get update && apt-get install -y \
-    python3 build-essential libsqlite3-dev dos2unix \
+    python3 build-essential libsqlite3-dev dos2unix git \
     $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc-dev" ) \
     && rm -rf /var/lib/apt/lists/*
 
@@ -24,13 +24,17 @@ RUN apt-get update && apt-get install -y \
 COPY server/package*.json ./server/
 WORKDIR /usr/src/app/FUXA/server
 RUN npm install --no-audit --no-fund
-RUN npm prune --production
 
-# Optional Snap7 installation
-RUN if [ "$NODE_SNAP" = "true" ]; then npm install node-snap7; fi
+# Nucená instalace node-snap7 jako produkční závislosti přímo v adresáři serveru
+RUN if [ "$NODE_SNAP" = "true" ]; then \
+    npm install node-snap7 --no-audit --no-fund --build-from-source; \
+    fi
 
 # Force rebuild of SQLite for the container
 RUN npm install --build-from-source --sqlite=/usr/bin sqlite3
+
+# Vyčištění pouze nepotřebných devDependencies (ponechá node-snap7)
+RUN npm prune --production
 
 # Optional ODBC driver preparation
 WORKDIR /usr/src/app/FUXA/odbc
@@ -51,8 +55,7 @@ FROM node:18-bookworm-slim
 ARG INSTALL_ODBC=true
 WORKDIR /usr/src/app/FUXA
 
-# Install runtime libraries AND build tools (python3, g++, make) 
-# needed for compiling runtime plugins (like node-snap7 / odbc)
+# Install runtime libraries AND build tools (kdyby náhodou FUXA přesto chtěla kompilovat pluginy runtime)
 RUN apt-get update \
     && apt-get install -y \
         sqlite3 libsqlite3-0 \
@@ -64,11 +67,11 @@ RUN apt-get update \
     fi \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy MySQL and MSSQL ODBC drivers from builder (not available in Debian repos)
+# Copy MySQL and MSSQL ODBC drivers from builder
 COPY --from=server-builder /usr/lib/odbc/ /usr/lib/odbc/
 COPY --from=server-builder /opt/microsoft/ /opt/microsoft/
 
-# 1. Copy Server
+# 1. Copy Server (včetně předpřipraveného node_modules s node-snap7)
 COPY --from=server-builder /usr/src/app/FUXA/server ./server
 
 # 2. Copy Client
