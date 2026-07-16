@@ -55,11 +55,7 @@ FROM node:18-bookworm-slim
 ARG INSTALL_ODBC=true
 WORKDIR /usr/src/app/FUXA
 
-# 1. Globální nastavení Pythonu pro npm a node-gyp, aby ho viděly i procesy na pozadí
-ENV PYTHON=/usr/bin/python3
-RUN npm config set python /usr/bin/python3 --global
-
-# 2. Instalace runtime knihoven, Pythonu a kompletních buildovacích nástrojů do finálního běžícího kontejneru
+# 1. Instalace runtime knihoven, Pythonu a kompletních buildovacích nástrojů do běžícího kontejneru
 RUN apt-get update \
     && apt-get install -y \
         sqlite3 libsqlite3-0 \
@@ -70,6 +66,17 @@ RUN apt-get update \
         find /usr/lib -path '*/odbc/*.so' -exec cp {} /usr/lib/odbc/ \; ; \
     fi \
     && rm -rf /var/lib/apt/lists/*
+
+# 2. Vytvoření symlinků pro python3 a python v /usr/local/bin.
+# Tento adresář je pro Node.js procesy vždy dostupný jako absolutní fallback v PATH.
+RUN ln -sf /usr/bin/python3 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3 /usr/local/bin/python \
+    && ln -sf /usr/bin/make /usr/local/bin/make \
+    && ln -sf /usr/bin/g++ /usr/local/bin/g++
+
+# 3. Globální konfigurace pro npm, zapsaná přímo do systémového configu, který FUXA nepřepíše
+ENV PYTHON=/usr/local/bin/python3
+RUN npm config set python /usr/local/bin/python3 --global
 
 # Copy MySQL and MSSQL ODBC drivers from builder
 COPY --from=server-builder /usr/lib/odbc/ /usr/lib/odbc/
