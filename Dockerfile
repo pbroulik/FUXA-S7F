@@ -9,7 +9,7 @@ RUN npm run build -- --configuration production
 # --- STAGE 2: Server & Native Dependencies Builder ---
 FROM node:18-bookworm AS server-builder
 # Define build arguments with defaults
-ARG NODE_SNAP=false
+ARG NODE_SNAP=true
 ARG INSTALL_ODBC=true
 
 WORKDIR /usr/src/app/FUXA
