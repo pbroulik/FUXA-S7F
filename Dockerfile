@@ -14,7 +14,7 @@ ARG INSTALL_ODBC=true
 
 WORKDIR /usr/src/app/FUXA
 
-# Base build tools
+# Base build tools (Zde Python a překladače jsou, protože stavíme na plném "bookworm" obrazu)
 RUN apt-get update && apt-get install -y \
     python3 build-essential libsqlite3-dev dos2unix git \
     $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc-dev" ) \
@@ -25,15 +25,19 @@ COPY server/package*.json ./server/
 WORKDIR /usr/src/app/FUXA/server
 RUN npm install --no-audit --no-fund
 
-# Optional Snap7 installation
+# PŘEDINSTALACE SNAP7: Nainstalujeme ho přesně do runtime složky, kde ho FUXA hledá
 RUN if [ "$NODE_SNAP" = "true" ]; then \
+    mkdir -p _pkg/runtime && \
+    cd _pkg/runtime && \
+    npm init -y && \
     npm install node-snap7 --no-audit --no-fund --build-from-source; \
     fi
 
-# Force rebuild of SQLite for the container
+# Vracíme se zpět a instalujeme sqlite
+WORKDIR /usr/src/app/FUXA/server
 RUN npm install --build-from-source --sqlite=/usr/bin sqlite3
 
-# Vyčištění pouze nepotřebných devDependencies
+# Vyčištění pouze nepotřebných devDependencies v serveru
 RUN npm prune --production
 
 # Optional ODBC driver preparation
@@ -50,16 +54,15 @@ COPY server/ ./
 RUN rm -rf test
 RUN npm run build
 
-# --- STAGE 3: Runner ---
+# --- STAGE 3: Runner (Čisté, lehké a bez kompilace za běhu) ---
 FROM node:18-bookworm-slim
 ARG INSTALL_ODBC=true
 WORKDIR /usr/src/app/FUXA
 
-# 1. Instalace runtime knihoven, Pythonu a kompletních buildovacích nástrojů do běžícího kontejneru
+# Instalujeme POUZE čisté knihovny pro běh, žádný kompilátor, žádný Python
 RUN apt-get update \
     && apt-get install -y \
         sqlite3 libsqlite3-0 \
-        python3 python3-pip build-essential g++ make \
         $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc odbc-mariadb odbc-postgresql libsqliteodbc tdsodbc unixodbc-dev" ) \
     && if [ "$INSTALL_ODBC" = "true" ]; then \
         mkdir -p /usr/lib/odbc && \
@@ -67,22 +70,11 @@ RUN apt-get update \
     fi \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Vytvoření symlinků pro python3 a python v /usr/local/bin.
-# Tento adresář je pro Node.js procesy vždy dostupný jako absolutní fallback v PATH.
-RUN ln -sf /usr/bin/python3 /usr/local/bin/python3 \
-    && ln -sf /usr/bin/python3 /usr/local/bin/python \
-    && ln -sf /usr/bin/make /usr/local/bin/make \
-    && ln -sf /usr/bin/g++ /usr/local/bin/g++
-
-# 3. Globální konfigurace pro npm, zapsaná přímo do systémového configu, který FUXA nepřepíše
-ENV PYTHON=/usr/local/bin/python3
-RUN npm config set python /usr/local/bin/python3 --global
-
 # Copy MySQL and MSSQL ODBC drivers from builder
 COPY --from=server-builder /usr/lib/odbc/ /usr/lib/odbc/
 COPY --from=server-builder /opt/microsoft/ /opt/microsoft/
 
-# Copy Server
+# Copy Server (včetně předpřipravené složky _pkg/runtime se zkompilovaným node-snap7)
 COPY --from=server-builder /usr/src/app/FUXA/server ./server
 
 # Copy Client
