@@ -14,7 +14,7 @@ ARG INSTALL_ODBC=true
 
 WORKDIR /usr/src/app/FUXA
 
-# Base build tools (přidán git pro případné stahování submodulů)
+# Base build tools
 RUN apt-get update && apt-get install -y \
     python3 build-essential libsqlite3-dev dos2unix git \
     $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc-dev" ) \
@@ -25,7 +25,7 @@ COPY server/package*.json ./server/
 WORKDIR /usr/src/app/FUXA/server
 RUN npm install --no-audit --no-fund
 
-# Nucená instalace node-snap7 jako produkční závislosti přímo v adresáři serveru
+# Optional Snap7 installation
 RUN if [ "$NODE_SNAP" = "true" ]; then \
     npm install node-snap7 --no-audit --no-fund --build-from-source; \
     fi
@@ -33,7 +33,7 @@ RUN if [ "$NODE_SNAP" = "true" ]; then \
 # Force rebuild of SQLite for the container
 RUN npm install --build-from-source --sqlite=/usr/bin sqlite3
 
-# Vyčištění pouze nepotřebných devDependencies (ponechá node-snap7)
+# Vyčištění pouze nepotřebných devDependencies
 RUN npm prune --production
 
 # Optional ODBC driver preparation
@@ -55,11 +55,15 @@ FROM node:18-bookworm-slim
 ARG INSTALL_ODBC=true
 WORKDIR /usr/src/app/FUXA
 
-# Install runtime libraries AND build tools (kdyby náhodou FUXA přesto chtěla kompilovat pluginy runtime)
+# 1. Globální nastavení Pythonu pro npm a node-gyp, aby ho viděly i procesy na pozadí
+ENV PYTHON=/usr/bin/python3
+RUN npm config set python /usr/bin/python3 --global
+
+# 2. Instalace runtime knihoven, Pythonu a kompletních buildovacích nástrojů do finálního běžícího kontejneru
 RUN apt-get update \
     && apt-get install -y \
         sqlite3 libsqlite3-0 \
-        python3 build-essential g++ make \
+        python3 python3-pip build-essential g++ make \
         $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc odbc-mariadb odbc-postgresql libsqliteodbc tdsodbc unixodbc-dev" ) \
     && if [ "$INSTALL_ODBC" = "true" ]; then \
         mkdir -p /usr/lib/odbc && \
@@ -71,17 +75,17 @@ RUN apt-get update \
 COPY --from=server-builder /usr/lib/odbc/ /usr/lib/odbc/
 COPY --from=server-builder /opt/microsoft/ /opt/microsoft/
 
-# 1. Copy Server (včetně předpřipraveného node_modules s node-snap7)
+# Copy Server
 COPY --from=server-builder /usr/src/app/FUXA/server ./server
 
-# 2. Copy Client
+# Copy Client
 COPY --from=client-builder /usr/src/app/client/dist ./client/dist
 
-# 3. Conditional ODBC Config
+# Conditional ODBC Config
 COPY --from=server-builder /usr/src/app/FUXA/odbc ./odbc
 RUN if [ "$INSTALL_ODBC" = "true" ]; then cp odbc/odbcinst.ini /etc/odbcinst.ini; fi
 
-# 4. Copy static app files
+# Copy static app files
 COPY node-red/ ./node-red/
 
 # Final cleanup
