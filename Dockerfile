@@ -51,11 +51,13 @@ FROM node:18-bookworm-slim
 ARG INSTALL_ODBC=true
 WORKDIR /usr/src/app/FUXA
 
-# Install ONLY runtime libraries
+# Install runtime libraries AND build tools (python3, g++, make) 
+# needed for compiling runtime plugins (like node-snap7 / odbc)
 RUN apt-get update \
     && apt-get install -y \
         sqlite3 libsqlite3-0 \
-        $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc odbc-mariadb odbc-postgresql libsqliteodbc tdsodbc" ) \
+        python3 build-essential g++ make \
+        $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc odbc-mariadb odbc-postgresql libsqliteodbc tdsodbc unixodbc-dev" ) \
     && if [ "$INSTALL_ODBC" = "true" ]; then \
         mkdir -p /usr/lib/odbc && \
         find /usr/lib -path '*/odbc/*.so' -exec cp {} /usr/lib/odbc/ \; ; \
