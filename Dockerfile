@@ -9,14 +9,16 @@ RUN npm run build -- --configuration production
 # --- STAGE 2: Server & Native Dependencies Builder ---
 FROM node:18-bookworm AS server-builder
 # Define build arguments with defaults
-ARG NODE_SNAP=true
+ARG NODE_SNAP=false
 ARG INSTALL_ODBC=true
 
 WORKDIR /usr/src/app/FUXA
 
 # Base build tools
+# DOPLNĚNO: libsnap7-dev pro čistou kompilaci node-snap7 na Raspbianu bez stahování z netu
 RUN apt-get update && apt-get install -y \
     python3 build-essential libsqlite3-dev dos2unix \
+    $( [ "$NODE_SNAP" = "true" ] && echo "libsnap7-dev" ) \
     $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc-dev" ) \
     && rm -rf /var/lib/apt/lists/*
 
@@ -48,13 +50,16 @@ RUN npm run build
 
 # --- STAGE 3: Runner ---
 FROM node:18-bookworm-slim
+ARG NODE_SNAP=false
 ARG INSTALL_ODBC=true
 WORKDIR /usr/src/app/FUXA
 
 # Install ONLY runtime libraries
+# DOPLNĚNO: libsnap7-1, aby měl zkompilovaný node-snap7 na čem běžet
 RUN apt-get update \
     && apt-get install -y \
         sqlite3 libsqlite3-0 \
+        $( [ "$NODE_SNAP" = "true" ] && echo "libsnap7-1" ) \
         $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc odbc-mariadb odbc-postgresql libsqliteodbc tdsodbc" ) \
     && if [ "$INSTALL_ODBC" = "true" ]; then \
         mkdir -p /usr/lib/odbc && \
@@ -78,6 +83,14 @@ RUN if [ "$INSTALL_ODBC" = "true" ]; then cp odbc/odbcinst.ini /etc/odbcinst.ini
 
 # 4. Copy static app files
 COPY node-red/ ./node-red/
+
+# --- DOPLNĚNO: PŘÍPRAVA RUNTIME PRO FUXA ---
+# Pokud je aktivní NODE_SNAP, vložíme zkompilovaný modul do '_pkg/runtime', kde ho FUXA očekává
+RUN if [ "$NODE_SNAP" = "true" ]; then \
+    mkdir -p server/_pkg/runtime/node_modules && \
+    echo '{"dependencies":{"node-snap7":"^0.1.20"}}' > server/_pkg/runtime/package.json && \
+    cp -r server/node_modules/node-snap7 server/_pkg/runtime/node_modules/; \
+    fi
 
 # Final cleanup
 WORKDIR /usr/src/app/FUXA/server
