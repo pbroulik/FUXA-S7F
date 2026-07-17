@@ -58,9 +58,16 @@ WORKDIR /usr/src/app/FUXA
 # DOPLNĚNO: libsnap7-1, aby měl zkompilovaný node-snap7 na čem běžet
 RUN apt-get update \
     && apt-get install -y \
-        sqlite3 libsqlite3-0 \
-        $( [ "$NODE_SNAP" = "true" ] && echo "libsnap7-1" ) \
+        python3 \
+        python3-distutils \
+        make \
+        g++ \
+        build-essential \
+        sqlite3 \
+        libsqlite3-0 \
+        libsnap7-1 \
         $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc odbc-mariadb odbc-postgresql libsqliteodbc tdsodbc" ) \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
     && if [ "$INSTALL_ODBC" = "true" ]; then \
         mkdir -p /usr/lib/odbc && \
         find /usr/lib -path '*/odbc/*.so' -exec cp {} /usr/lib/odbc/ \; ; \
@@ -96,5 +103,7 @@ RUN if [ "$NODE_SNAP" = "true" ]; then \
 WORKDIR /usr/src/app/FUXA/server
 
 ENV NODE_ENV=production
+ENV PYTHON=/usr/bin/python3
+ENV npm_config_python=/usr/bin/python3
 EXPOSE 1881
 CMD [ "node", "main.js" ]
