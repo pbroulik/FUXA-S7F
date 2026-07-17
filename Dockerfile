@@ -50,7 +50,7 @@ RUN npm run build
 
 # --- STAGE 3: Runner ---
 FROM node:18-bookworm-slim
-ARG NODE_SNAP=false
+ARG NODE_SNAP=true
 ARG INSTALL_ODBC=true
 WORKDIR /usr/src/app/FUXA
 
