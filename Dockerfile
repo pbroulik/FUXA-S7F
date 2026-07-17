@@ -49,7 +49,7 @@ RUN rm -rf test
 RUN npm run build
 
 # --- STAGE 3: Runner ---
-FROM node:18-bookworm-slim
+FROM node:18-bookworm
 ARG NODE_SNAP=true
 ARG INSTALL_ODBC=true
 WORKDIR /usr/src/app/FUXA
@@ -59,13 +59,9 @@ WORKDIR /usr/src/app/FUXA
 RUN apt-get update \
     && apt-get install -y \
         python3 \
-        python3-distutils \
         make \
         g++ \
         build-essential \
-        sqlite3 \
-        libsqlite3-0 \
-        libsnap7-1 \
         $( [ "$INSTALL_ODBC" = "true" ] && echo "unixodbc odbc-mariadb odbc-postgresql libsqliteodbc tdsodbc" ) \
     && ln -sf /usr/bin/python3 /usr/bin/python \
     && if [ "$INSTALL_ODBC" = "true" ]; then \
@@ -73,6 +69,7 @@ RUN apt-get update \
         find /usr/lib -path '*/odbc/*.so' -exec cp {} /usr/lib/odbc/ \; ; \
     fi \
     && rm -rf /var/lib/apt/lists/*
+RUN python3 --version && python --version && which python3
 
 # Copy MySQL and MSSQL ODBC drivers from builder (not available in Debian repos)
 COPY --from=server-builder /usr/lib/odbc/ /usr/lib/odbc/
@@ -105,5 +102,6 @@ WORKDIR /usr/src/app/FUXA/server
 ENV NODE_ENV=production
 ENV PYTHON=/usr/bin/python3
 ENV npm_config_python=/usr/bin/python3
+ENV npm_config_build_from_source=true
 EXPOSE 1881
 CMD [ "node", "main.js" ]
